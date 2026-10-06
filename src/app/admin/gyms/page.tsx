@@ -12,7 +12,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowUpDown, Building2, CheckCircle2, FileUp, Search, Upload,
+  ArrowUpDown, Building2, CheckCircle2, FileUp, Pencil, Plus, Search, Trash2, Upload,
 } from "lucide-react";
 import { SubmitGymDialog } from "@/components/submit-dialogs";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/misc";
+import { Field, Input, Textarea } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 type SortKey = "name" | "city" | "rating" | "price";
@@ -203,12 +204,43 @@ function CsvImport() {
 }
 
 export default function AdminGymsPage() {
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("name");
+  const [mode, setMode] = useState<{ kind: "add" } | { kind: "edit"; slug: string; name: string } | { kind: "delete"; slug: string; name: string } | null>(null);
+  const [form, setForm] = useState({ name: "", city: "", neighborhood: "", dropIn: "25", priceFrom: "150", description: "" });
+  const [reason, setReason] = useState("");
   const { data: gyms, isLoading } = useGyms({ sort: "name" });
   const { data: submissions } = useSubmissions(false);
 
   const pendingGyms = (submissions ?? []).filter((s) => s.kind === "gym" && s.status === "pending");
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["gyms"] });
+    qc.invalidateQueries({ queryKey: ["admin-gyms"] });
+    qc.invalidateQueries({ queryKey: ["audit"] });
+  };
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        name: form.name, city: form.city, neighborhood: form.neighborhood,
+        dropIn: Number(form.dropIn) || 0, priceFrom: Number(form.priceFrom) || 0,
+        description: form.description,
+      };
+      if (mode?.kind === "add") return api.adminCreateGym(payload, reason);
+      if (mode?.kind === "edit") return api.adminUpdateGym(mode.slug, payload, reason);
+      throw new Error("Nothing to save");
+    },
+    onSuccess: () => { invalidate(); toast.success("Gym saved & logged"); setMode(null); setReason(""); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
+  });
+
+  const del = useMutation({
+    mutationFn: () => (mode?.kind === "delete" ? api.adminDeleteGym(mode.slug, reason) : Promise.resolve()),
+    onSuccess: () => { invalidate(); toast.success("Gym deleted & logged"); setMode(null); setReason(""); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
+  });
 
   const rows = useMemo(() => {
     let out = [...(gyms ?? [])];
@@ -253,8 +285,15 @@ export default function AdminGymsPage() {
           description="Every listing in the directory. Search, sort, open a profile to edit, or bulk import."
           action={
             <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => {
+                  setForm({ name: "", city: "", neighborhood: "", dropIn: "25", priceFrom: "150", description: "" });
+                  setReason(""); setMode({ kind: "add" });
+                }}
+              >
+                <Plus className="size-4" /> Add gym
+              </Button>
               <CsvImport />
-              <SubmitGymDialog />
             </div>
           }
         />
@@ -311,12 +350,28 @@ export default function AdminGymsPage() {
                       </Badge>
                     </td>
                     <td className="p-3 text-right">
-                      <Link
-                        href={`/gyms/${g.slug}`}
-                        className="text-xs font-medium text-accent underline-offset-4 hover:underline"
-                      >
-                        Open
-                      </Link>
+                      <div className="flex justify-end gap-1">
+                        <Button size="icon-sm" variant="ghost" aria-label={`Edit ${g.name}`}
+                          onClick={() => {
+                            setForm({
+                              name: g.name, city: g.city, neighborhood: g.neighborhood ?? "",
+                              dropIn: String(g.dropIn), priceFrom: String(g.priceFrom), description: g.about,
+                            });
+                            setReason(""); setMode({ kind: "edit", slug: g.slug, name: g.name });
+                          }}>
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" aria-label={`Delete ${g.name}`}
+                          onClick={() => { setReason(""); setMode({ kind: "delete", slug: g.slug, name: g.name }); }}>
+                          <Trash2 className="size-4 text-danger" />
+                        </Button>
+                        <Link
+                          href={`/gyms/${g.slug}`}
+                          className="inline-flex h-8 items-center rounded-sm px-2 text-xs font-medium text-accent underline-offset-4 hover:underline"
+                        >
+                          Open
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -325,9 +380,58 @@ export default function AdminGymsPage() {
           </Card>
         )}
         <p className="text-xs text-muted">
-          Showing {rows.length} of {(gyms ?? []).length} listings. Edits made by an approved gym owner
-          or staff go live immediately; member suggestions enter the review queue.
+          Showing {rows.length} of {(gyms ?? []).length} listings. Staff edits go live immediately;
+          member suggestions still enter the review queue. Every action here is reason-logged.
         </p>
+
+        <Dialog open={!!mode} onOpenChange={(o) => { if (!o) { setMode(null); setReason(""); } }}>
+          <DialogContent
+            title={mode?.kind === "add" ? "Add a gym" : mode?.kind === "edit" ? `Edit ${mode.name}` : `Delete ${mode?.name}?`}
+            description={mode?.kind === "delete" ? "This removes the listing from the directory immediately. The reason is logged." : "Changes publish instantly across the app."}
+          >
+            <form
+              className="space-y-4"
+              onSubmit={(e) => { e.preventDefault(); (mode?.kind === "delete" ? del : save).mutate(); }}
+            >
+              {mode?.kind !== "delete" && (
+                <>
+                  <Field label="Gym name">
+                    {(id) => <Input id={id} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="City">
+                      {(id) => <Input id={id} required value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />}
+                    </Field>
+                    <Field label="Neighborhood">
+                      {(id) => <Input id={id} value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} />}
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Drop-in fee ($)">
+                      {(id) => <Input id={id} type="number" min={0} value={form.dropIn} onChange={(e) => setForm({ ...form, dropIn: e.target.value })} />}
+                    </Field>
+                    <Field label="Membership from ($/mo)">
+                      {(id) => <Input id={id} type="number" min={0} value={form.priceFrom} onChange={(e) => setForm({ ...form, priceFrom: e.target.value })} />}
+                    </Field>
+                  </div>
+                  <Field label="Description">
+                    {(id) => <Textarea id={id} rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />}
+                  </Field>
+                </>
+              )}
+              <Field label="Reason (required)">
+                {(id) => <Input id={id} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. corrected drop-in fee with the owner" />}
+              </Field>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => { setMode(null); setReason(""); }}>Cancel</Button>
+                <Button type="submit" variant={mode?.kind === "delete" ? "danger" : "primary"}
+                  loading={save.isPending || del.isPending} disabled={reason.trim().length < 5}>
+                  {mode?.kind === "delete" ? "Delete & log" : "Save & log"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageTransition>
   );

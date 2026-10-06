@@ -34,6 +34,16 @@ const KEYS = {
   customAccounts: `${PREFIX}custom-accounts`,
   adminProfiles: `${PREFIX}admin-profiles`,
   deletedAccounts: `${PREFIX}deleted-accounts`,
+  /* Admin directory edits (overlay on the read-only demo dataset) */
+  gymAdds: `${PREFIX}dir-gym-adds`,
+  gymEdits: `${PREFIX}dir-gym-edits`,
+  gymDeletes: `${PREFIX}dir-gym-deletes`,
+  matAdds: `${PREFIX}dir-mat-adds`,
+  matEdits: `${PREFIX}dir-mat-edits`,
+  matDeletes: `${PREFIX}dir-mat-deletes`,
+  partnerAdds: `${PREFIX}dir-partner-adds`,
+  partnerEdits: `${PREFIX}dir-partner-edits`,
+  partnerDeletes: `${PREFIX}dir-partner-deletes`,
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -183,6 +193,32 @@ export const getAdminProfiles = () => read<Record<string, Partial<Profile>>>(KEY
 export const setAdminProfiles = (m: Record<string, Partial<Profile>>) => write(KEYS.adminProfiles, m);
 export const getDeletedAccounts = () => read<string[]>(KEYS.deletedAccounts, []);
 export const setDeletedAccounts = (d: string[]) => write(KEYS.deletedAccounts, d);
+
+/* ——— Admin directory overlay (gyms / open mats / partners) ——— */
+import type { Gym, OpenMat, Partner } from "./types";
+export const getGymAdds = () => read<Gym[]>(KEYS.gymAdds, []);
+export const setGymAdds = (v: Gym[]) => write(KEYS.gymAdds, v);
+export const getGymEdits = () => read<Record<string, Partial<Gym>>>(KEYS.gymEdits, {});
+export const setGymEdits = (v: Record<string, Partial<Gym>>) => write(KEYS.gymEdits, v);
+export const getGymDeletes = () => read<string[]>(KEYS.gymDeletes, []);
+export const setGymDeletes = (v: string[]) => write(KEYS.gymDeletes, v);
+
+export const getMatAdds = () => read<OpenMat[]>(KEYS.matAdds, []);
+export const setMatAdds = (v: OpenMat[]) => write(KEYS.matAdds, v);
+export const getMatEdits = () => read<Record<string, Partial<OpenMat>>>(KEYS.matEdits, {});
+export const setMatEdits = (v: Record<string, Partial<OpenMat>>) => write(KEYS.matEdits, v);
+export const getMatDeletes = () => read<string[]>(KEYS.matDeletes, []);
+export const setMatDeletes = (v: string[]) => write(KEYS.matDeletes, v);
+
+export const getPartnerAdds = () => read<Partner[]>(KEYS.partnerAdds, []);
+export const setPartnerAdds = (v: Partner[]) => write(KEYS.partnerAdds, v);
+export const getPartnerEdits = () => read<Record<string, Partial<Partner>>>(KEYS.partnerEdits, {});
+export const setPartnerEdits = (v: Record<string, Partial<Partner>>) => write(KEYS.partnerEdits, v);
+export const getPartnerDeletes = () => read<string[]>(KEYS.partnerDeletes, []);
+export const setPartnerDeletes = (v: string[]) => write(KEYS.partnerDeletes, v);
+
+/* Raw event list write (used by the admin bulk seed) */
+export const setEvents = (e: AppEvent[]) => write(KEYS.events, e);
 
 /** Waitlist signups: [{id, city, email, at}] */
 export interface WaitlistEntry { id: string; city: string; email: string; at: string }

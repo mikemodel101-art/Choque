@@ -14,6 +14,8 @@ import {
   ArrowLeft,
   BarChart3,
   Building2,
+  CalendarCheck2,
+  NotebookPen,
   Flag,
   LayoutDashboard,
   Mail,
@@ -25,7 +27,7 @@ import {
   ShieldX,
   Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useRole } from "@/components/can";
 import { Logo } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -39,6 +41,9 @@ const NAV = [
   { href: "/admin/queue", label: "Review queue", icon: FileCheck2, adminOnly: false, exact: false },
   { href: "/admin/reports", label: "Reports", icon: Flag, adminOnly: false, exact: false },
   { href: "/admin/gyms", label: "Gyms", icon: Building2, adminOnly: false, exact: false },
+  { href: "/admin/open-mats", label: "Open mats", icon: CalendarCheck2, adminOnly: false, exact: false },
+  { href: "/admin/partners", label: "Partners", icon: Users, adminOnly: false, exact: false },
+  { href: "/admin/notebook", label: "My notebook", icon: NotebookPen, adminOnly: false, exact: false },
   { href: "/admin/claims", label: "Gym claims", icon: KeyRound, adminOnly: false, exact: false },
   { href: "/admin/users", label: "Users", icon: Users, adminOnly: true, exact: false },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3, adminOnly: true, exact: false },
@@ -49,6 +54,13 @@ const NAV = [
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const role = useRole();
+
+  // Populate every admin surface with bulk demo data on the first staff visit.
+  useEffect(() => {
+    if (!role.loading && role.isStaff) {
+      import("@/lib/seed-admin").then((m) => m.ensureAdminSeed());
+    }
+  }, [role.loading, role.isStaff]);
 
   if (role.loading) {
     return <div className="flex min-h-dvh items-center justify-center text-sm text-muted">Checking access…</div>;

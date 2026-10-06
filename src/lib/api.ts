@@ -8,6 +8,7 @@
  * backend is introduced — no page code changes required.
  */
 import { GYMS, GYM_BY_ID, GYM_BY_SLUG, OPEN_MATS, PARTNERS } from "./data";
+import * as dir from "./directory";
 import { ACCOUNT_BY_EMAIL, lookupAccount, type DemoAccount } from "./demo-accounts";
 import { caps } from "./permissions";
 import * as store from "./storage";
@@ -19,6 +20,7 @@ import type {
   Gym,
   NotebookEntry,
   OpenMatResolved,
+  OpenMat,
   Partner,
   Profile,
   Submission,
@@ -204,7 +206,7 @@ export interface GymFilters {
 
 export async function listGyms(f: GymFilters = {}): Promise<Gym[]> {
   await latency();
-  let out = [...GYMS];
+  let out = [...dir.gyms()];
   if (f.q) {
     const q = f.q.toLowerCase();
     out = out.filter(
@@ -233,13 +235,13 @@ export async function listGyms(f: GymFilters = {}): Promise<Gym[]> {
 
 export async function getGym(slug: string): Promise<Gym | null> {
   await latency();
-  const g = GYM_BY_SLUG.get(slug) ?? null;
+  const g = dir.gymBySlug(slug) ?? null;
   if (g) log("gyms.view", `Viewed ${g.name}`);
   return g;
 }
 
 export async function listCities(): Promise<string[]> {
-  return [...new Set(GYMS.map((g) => g.city))].sort();
+  return dir.cities();
 }
 
 export async function getSavedGyms(): Promise<string[]> {
@@ -267,7 +269,7 @@ export interface PartnerFilters {
 
 export async function listPartners(f: PartnerFilters = {}): Promise<Partner[]> {
   await latency();
-  let out = [...PARTNERS];
+  let out = [...dir.partners()];
   if (f.q) {
     const q = f.q.toLowerCase();
     out = out.filter(
@@ -291,7 +293,7 @@ export async function listPartners(f: PartnerFilters = {}): Promise<Partner[]> {
 
 export async function getPartner(slug: string): Promise<Partner | null> {
   await latency();
-  const p = PARTNERS.find((x) => x.slug === slug) ?? null;
+  const p = dir.partnerBySlug(slug) ?? null;
   if (p) log("partners.view", `Viewed ${p.name}`);
   return p;
 }
@@ -862,6 +864,168 @@ export async function adminRestoreUser(email: string, reason: string): Promise<D
   return listDemoUsers();
 }
 
+
+/* ——————————————————— Admin directory CRUD (staff; every action audited) ——————————————————— */
+export interface GymInput {
+  name: string; city: string; neighborhood?: string; state?: string;
+  dropIn?: number; priceFrom?: number; description?: string; visitorFriendly?: boolean;
+}
+function slugify(s: string) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+function requireStaffReason(reason: string) {
+  const { c } = requireCaps();
+  if (!c.isStaff) throw new Error("Only staff can manage directory content.");
+  if (!reason || reason.trim().length < 5) throw new Error("A reason of at least 5 characters is required.");
+}
+
+export async function adminCreateGym(input: GymInput, reason: string): Promise<Gym> {
+  await latency(260);
+  requireStaffReason(reason);
+  if (!input.name.trim() || input.name.trim().length < 3) throw new Error("Gym name must be at least 3 characters.");
+  if (!input.city.trim()) throw new Error("City is required.");
+  const slug = slugify(input.name);
+  if (dir.gymBySlug(slug)) throw new Error("A gym with that name already exists.");
+
+  const gym: Gym = {
+    id: `g-${slug}-${uid().slice(0, 4)}`, slug,
+    name: input.name.trim(), city: input.city.trim(),
+    state: (input.state ?? "").trim().toUpperCase() || "OR",
+    address: `${input.city.trim()}, ${(input.state ?? "").trim().toUpperCase() || "OR"}`,
+    neighborhood: input.neighborhood?.trim() || input.city.trim(),
+    disciplines: ["bjj"], rating: 0, reviews: 0,
+    priceFrom: input.priceFrom ?? 0, dropIn: input.dropIn ?? 0,
+    headCoach: "", coaches: [], image: GYMS[0].image, gallery: [],
+    about: input.description?.trim() ?? "Added by staff — description pending.",
+    amenities: [], womenOnly: false, kids: false, verified: false, affiliate: false,
+    schedule: [], visitorFriendly: !!input.visitorFriendly,
+  };
+  store.setGymAdds([gym, ...store.getGymAdds()]);
+  log("audit.gym_add", `Added gym “${gym.name}” (${gym.city}) — reason: ${reason.trim()}`);
+  return gym;
+}
+
+export async function adminUpdateGym(slug: string, input: Partial<GymInput>, reason: string): Promise<Gym> {
+  await latency(240);
+  requireStaffReason(reason);
+  const gym = dir.gymBySlug(slug);
+  if (!gym) throw new Error("Gym not found.");
+  const edits = store.getGymEdits();
+  edits[slug] = { ...(edits[slug] ?? {}), ...input } as Partial<Gym>;
+  store.setGymEdits(edits);
+  log("audit.gym_edit", `Edited gym “${gym.name}” (${Object.keys(input).join(", ")}) — reason: ${reason.trim()}`);
+  return { ...gym, ...input } as Gym;
+}
+
+export async function adminDeleteGym(slug: string, reason: string) {
+  await latency(220);
+  requireStaffReason(reason);
+  const gym = dir.gymBySlug(slug);
+  if (!gym) throw new Error("Gym not found.");
+  store.setGymDeletes([...store.getGymDeletes(), slug]);
+  log("audit.gym_delete", `Deleted gym “${gym.name}” — reason: ${reason.trim()}`);
+}
+
+export interface MatInput {
+  gymId: string; title: string; weekday: number; start: string; end: string;
+  level?: "All levels" | "Beginner" | "Competition"; fee?: number; hostName?: string;
+  visitorRequirements?: string; notes?: string;
+}
+
+function addHour(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  return `${String((h ?? 9) + 2).padStart(2, "0")}:${String(m ?? 0).padStart(2, "0")}`;
+}
+
+export async function adminCreateMat(input: MatInput, reason: string): Promise<OpenMat> {
+  await latency(260);
+  requireStaffReason(reason);
+  if (!input.title.trim()) throw new Error("Title is required.");
+  const gym = dir.gymById(input.gymId);
+  if (!gym) throw new Error("Pick a host gym.");
+
+  const mat: OpenMat = {
+    id: `m-${uid().slice(0, 8)}`, gymId: input.gymId,
+    title: input.title.trim(), discipline: "bjj", weekday: input.weekday,
+    weekOffset: 0, start: input.start, end: input.end || addHour(input.start),
+    level: input.level ?? "All levels", fee: input.fee ?? 0,
+    capacity: 30, attendeesBase: 0, womenOnly: false,
+    hostName: input.hostName?.trim() || gym.headCoach || gym.name,
+    hostContact: gym.email ?? "", visitorRequirements: input.visitorRequirements?.trim() || "Check with the host",
+    notes: input.notes?.trim() ?? "",
+  };
+  store.setMatAdds([mat, ...store.getMatAdds()]);
+  log("audit.mat_add", `Added open mat “${mat.title}” at ${gym.name} — reason: ${reason.trim()}`);
+  return mat;
+}
+
+export async function adminUpdateMat(id: string, input: Partial<MatInput>, reason: string) {
+  await latency(220);
+  requireStaffReason(reason);
+  const mat = dir.mats().find((m) => m.id === id);
+  if (!mat) throw new Error("Open mat not found.");
+  const edits = store.getMatEdits();
+  edits[id] = { ...(edits[id] ?? {}), ...input } as Partial<OpenMat>;
+  store.setMatEdits(edits);
+  log("audit.mat_edit", `Edited open mat “${mat.title}” — reason: ${reason.trim()}`);
+}
+
+export async function adminDeleteMat(id: string, reason: string) {
+  await latency(200);
+  requireStaffReason(reason);
+  const mat = dir.mats().find((m) => m.id === id);
+  if (!mat) throw new Error("Open mat not found.");
+  store.setMatDeletes([...store.getMatDeletes(), id]);
+  log("audit.mat_delete", `Deleted open mat “${mat.title}” — reason: ${reason.trim()}`);
+}
+
+export interface PartnerInput {
+  name: string; city: string; rank?: string; disciplines?: string[];
+  availability?: string[]; bio?: string; weightKg?: number;
+}
+
+export async function adminCreatePartner(input: PartnerInput, reason: string): Promise<Partner> {
+  await latency(260);
+  requireStaffReason(reason);
+  if (!input.name.trim()) throw new Error("Name is required.");
+  const slug = slugify(input.name);
+  if (dir.partnerBySlug(slug)) throw new Error("Someone with that name already exists.");
+
+  const partner: Partner = {
+    id: `p-${uid().slice(0, 6)}`, slug,
+    name: input.name.trim(), city: input.city.trim() || "Portland", state: "OR",
+    homeGymId: GYMS[0].id, disciplines: (input.disciplines as Partner["disciplines"]) ?? ["bjj"],
+    primaryDiscipline: ((input.disciplines?.[0] as Partner["primaryDiscipline"]) ?? "bjj"),
+    rank: input.rank?.trim() || "Practitioner",
+    yearsTraining: 1, weightKg: input.weightKg ?? 70,
+    availability: (input.availability as Partner["availability"]) ?? ["Evening"],
+    weekdays: ["Mon", "Wed"], lookingFor: ["Open mat"],
+    bio: input.bio?.trim() ?? "Added by staff.",
+    lastActiveDays: 0, verified: false,
+  };
+  store.setPartnerAdds([partner, ...store.getPartnerAdds()]);
+  log("audit.partner_add", `Added practitioner “${partner.name}” — reason: ${reason.trim()}`);
+  return partner;
+}
+
+export async function adminUpdatePartner(slug: string, input: Partial<PartnerInput>, reason: string) {
+  await latency(220);
+  requireStaffReason(reason);
+  const partner = dir.partnerBySlug(slug);
+  if (!partner) throw new Error("Practitioner not found.");
+  const edits = store.getPartnerEdits();
+  edits[slug] = { ...(edits[slug] ?? {}), ...input } as Partial<Partner>;
+  store.setPartnerEdits(edits);
+  log("audit.partner_edit", `Edited practitioner “${partner.name}” — reason: ${reason.trim()}`);
+}
+
+export async function adminDeletePartner(slug: string, reason: string) {
+  await latency(200);
+  requireStaffReason(reason);
+  const partner = dir.partnerBySlug(slug);
+  if (!partner) throw new Error("Practitioner not found.");
+  store.setPartnerDeletes([...store.getPartnerDeletes(), slug]);
+  log("audit.partner_delete", `Deleted practitioner “${partner.name}” — reason: ${reason.trim()}`);
+}
+
 /** Distinct demo audit log entries (auth + moderation events). */
 export async function listAuditEvents(): Promise<AppEvent[]> {
   await latency(120);
@@ -882,8 +1046,9 @@ export interface MatFilters {
 export async function listOpenMats(f: MatFilters = {}): Promise<OpenMatResolved[]> {
   await latency();
   const rsvps = store.getRsvps();
-  let out: OpenMatResolved[] = OPEN_MATS.map((m) => {
-    const gym = GYM_BY_ID.get(m.gymId)!;
+  let out: OpenMatResolved[] = dir.mats().map((m) => {
+    const gym = dir.gymById(m.gymId) ?? GYM_BY_ID.get(m.gymId)!;
+    if (!gym) return null;
     const rsvped = rsvps.includes(m.id);
     const attendees = m.attendeesBase + (rsvped ? 1 : 0);
     return {
@@ -893,8 +1058,8 @@ export async function listOpenMats(f: MatFilters = {}): Promise<OpenMatResolved[
       rsvped,
       attendees,
       full: attendees >= m.capacity,
-    };
-  });
+    } as OpenMatResolved;
+  }).filter(Boolean) as OpenMatResolved[];
   if (f.discipline && f.discipline !== "all") out = out.filter((m) => m.discipline === f.discipline);
   if (f.city && f.city !== "all") out = out.filter((m) => m.gym.city === f.city);
   if (f.level && f.level !== "all") out = out.filter((m) => m.level === f.level);
