@@ -1,0 +1,23 @@
+{
+  "name": "CHOQUE — find your mat family",
+  "short_name": "CHOQUE",
+  "description": "Find gyms, training partners and open mats — and keep a private training notebook.",
+  "start_url": "/gyms",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAFAF9",
+  "theme_color": "#B91C1C",
+  "categories": ["sports", "health", "social"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Open mats", "url": "/open-mats", "description": "This week's community mats" },
+    { "name": "Notebook", "url": "/notebook", "description": "Log today's session" },
+    { "name": "Requests", "url": "/requests", "description": "Answer connection requests" }
+  ]
+}
