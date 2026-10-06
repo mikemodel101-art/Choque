@@ -14,6 +14,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpDown, Building2, CheckCircle2, FileUp, Search, Upload,
 } from "lucide-react";
+import { SubmitGymDialog } from "@/components/submit-dialogs";
 import { toast } from "sonner";
 import * as api from "@/lib/api";
 import { useGyms, useSubmissions } from "@/lib/hooks";
@@ -250,7 +251,12 @@ export default function AdminGymsPage() {
         <PageHeader
           title="Gyms"
           description="Every listing in the directory. Search, sort, open a profile to edit, or bulk import."
-          action={<CsvImport />}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <CsvImport />
+              <SubmitGymDialog />
+            </div>
+          }
         />
 
         <div className="flex flex-wrap items-center gap-3">

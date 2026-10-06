@@ -31,6 +31,9 @@ const KEYS = {
   outbox: `${PREFIX}outbox`,
   locale: `${PREFIX}locale`,
   waitlist: `${PREFIX}waitlist`,
+  customAccounts: `${PREFIX}custom-accounts`,
+  adminProfiles: `${PREFIX}admin-profiles`,
+  deletedAccounts: `${PREFIX}deleted-accounts`,
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -171,6 +174,15 @@ export const setOutbox = (q: QueuedWrite[]) => write(KEYS.outbox, q);
 /* ——— Locale preference ——— */
 export const getLocale = () => read<string>(KEYS.locale, "en");
 export const setLocale = (l: string) => write(KEYS.locale, l);
+
+/* Admin-managed accounts (added / profile-edited / deleted by an admin) */
+import type { DemoAccount } from "./demo-accounts";
+export const getCustomAccounts = () => read<DemoAccount[]>(KEYS.customAccounts, []);
+export const setCustomAccounts = (a: DemoAccount[]) => write(KEYS.customAccounts, a);
+export const getAdminProfiles = () => read<Record<string, Partial<Profile>>>(KEYS.adminProfiles, {});
+export const setAdminProfiles = (m: Record<string, Partial<Profile>>) => write(KEYS.adminProfiles, m);
+export const getDeletedAccounts = () => read<string[]>(KEYS.deletedAccounts, []);
+export const setDeletedAccounts = (d: string[]) => write(KEYS.deletedAccounts, d);
 
 /** Waitlist signups: [{id, city, email, at}] */
 export interface WaitlistEntry { id: string; city: string; email: string; at: string }

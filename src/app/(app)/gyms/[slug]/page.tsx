@@ -13,10 +13,13 @@ import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   BadgeCheck,
+  Camera,
   Baby,
   Bookmark,
   Dumbbell,
   ExternalLink,
+  Globe,
+  Mail,
   MapPin,
   ShowerHead,
   Star,
@@ -252,6 +255,39 @@ export default function GymDetailPage() {
                 <dt className="text-muted">Location</dt>
                 <dd className="text-right font-medium">{gym.city}, {gym.state}</dd>
               </div>
+              {gym.website && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Website</dt>
+                  <dd>
+                    <a href={gym.website} target="_blank" rel="noreferrer"
+                       className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline">
+                      <Globe className="size-3.5" /> Visit site
+                    </a>
+                  </dd>
+                </div>
+              )}
+              {gym.instagram && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Instagram</dt>
+                  <dd>
+                    <a href={`https://instagram.com/${gym.instagram}`} target="_blank" rel="noreferrer"
+                       className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline">
+                      <Camera className="size-3.5" /> @{gym.instagram}
+                    </a>
+                  </dd>
+                </div>
+              )}
+              {gym.email && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Contact</dt>
+                  <dd>
+                    <a href={`mailto:${gym.email}`}
+                       className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline">
+                      <Mail className="size-3.5" /> {gym.email}
+                    </a>
+                  </dd>
+                </div>
+              )}
             </dl>
           </Card>
 

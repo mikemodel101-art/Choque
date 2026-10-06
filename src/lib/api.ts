@@ -8,7 +8,7 @@
  * backend is introduced — no page code changes required.
  */
 import { GYMS, GYM_BY_ID, GYM_BY_SLUG, OPEN_MATS, PARTNERS } from "./data";
-import { ACCOUNT_BY_EMAIL } from "./demo-accounts";
+import { ACCOUNT_BY_EMAIL, lookupAccount, type DemoAccount } from "./demo-accounts";
 import { caps } from "./permissions";
 import * as store from "./storage";
 import { roleLabel } from "./demo-accounts";
@@ -91,10 +91,19 @@ function nameFromEmail(email: string) {
 }
 
 /** Normalize legacy sessions: backfill role from the account registry. */
+function allAccounts(): DemoAccount[] {
+  return [...ACCOUNT_BY_EMAIL.values(), ...store.getCustomAccounts()];
+}
+
+/** Registry lookup that also covers admin-added accounts. */
+function accountFor(email: string): DemoAccount | undefined {
+  return allAccounts().find((a) => a.email === email) ?? lookupAccount(email);
+}
+
 function normalizeSession() {
   const s = store.getSession();
   if (s && !s.role) {
-    const account = ACCOUNT_BY_EMAIL.get(s.email);
+    const account = accountFor(s.email);
     const patched = { ...s, role: (account?.role ?? "member") as AppRole };
     store.saveSession(patched);
     return patched;
@@ -116,7 +125,10 @@ export function isCurrentUserSuspended(): boolean {
 
 export async function signIn(email: string) {
   await latency(450);
-  const account = ACCOUNT_BY_EMAIL.get(email);
+  if (store.getDeletedAccounts().includes(email)) {
+    throw new Error("This account has been deleted by an administrator.");
+  }
+  const account = accountFor(email);
   const session = {
     email,
     name: account?.name ?? nameFromEmail(email),
@@ -504,7 +516,7 @@ export async function listDemoUsers(query = ""): Promise<DemoUserRow[]> {
   const map = store.getSuspensions();
   const roles = store.getRoleOverrides();
   const q = query.trim().toLowerCase();
-  return Array.from(ACCOUNT_BY_EMAIL.values())
+  return allAccounts()
     .map((a) => ({
       email: a.email,
       name: a.name,
@@ -520,7 +532,7 @@ export async function listDemoUsers(query = ""): Promise<DemoUserRow[]> {
 export async function setUserSuspended(email: string, suspended: boolean, reason: string) {
   await latency(220);
   const { c } = requireCaps();
-  const target = ACCOUNT_BY_EMAIL.get(email);
+  const target = accountFor(email);
   if (!target) throw new Error("Unknown account.");
   if (!reason || reason.trim().length < 5)
     throw new Error("A reason of at least 5 characters is required and will be logged.");
@@ -554,7 +566,7 @@ export async function setUserRole(email: string, role: AppRole, reason: string) 
   if (!c.isAdmin) throw new Error("Only admins can change roles.");
   if (!reason || reason.trim().length < 5)
     throw new Error("A reason of at least 5 characters is required and will be logged.");
-  const target = ACCOUNT_BY_EMAIL.get(email);
+  const target = accountFor(email);
   if (!target) throw new Error("Unknown account.");
 
   const users = await listDemoUsers();
@@ -752,6 +764,102 @@ export async function completeOnboarding(profile: Profile) {
   store.setOnboarded(true);
   log("profile.onboarded", "Completed onboarding");
   return profile;
+}
+
+
+/* ——————————————————— Admin user CRUD (admin only, every action audited) ——————————————————— */
+export interface AdminUserInput { email: string; name: string; role: AppRole; reason: string }
+
+export async function adminAddUser(input: AdminUserInput): Promise<DemoUserRow[]> {
+  await latency(260);
+  const { c } = requireCaps();
+  if (!c.isAdmin) throw new Error("Only admins can add users.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) throw new Error("Enter a valid email address.");
+  if (!input.name.trim() || input.name.trim().length < 2) throw new Error("Name must be at least 2 characters.");
+  if (!input.reason || input.reason.trim().length < 5)
+    throw new Error("A reason of at least 5 characters is required and will be logged.");
+  if (accountFor(input.email)) throw new Error("An account with that email already exists.");
+
+  const account: DemoAccount = {
+    role: input.role,
+    email: input.email.toLowerCase(),
+    name: input.name.trim(),
+    label: roleLabel(input.role),
+    blurb: `Admin-added ${roleLabel(input.role)}.`,
+  };
+  store.setCustomAccounts([...store.getCustomAccounts(), account]);
+  log("audit.user_add", `Added ${account.email} as ${roleLabel(input.role)} — reason: ${input.reason.trim()}`);
+  return listDemoUsers();
+}
+
+export interface AdminProfileEdit {
+  email: string;
+  name?: string;
+  city?: string;
+  rank?: string;
+  bio?: string;
+  reason: string;
+}
+
+export async function adminEditUserProfile(input: AdminProfileEdit): Promise<DemoUserRow[]> {
+  await latency(240);
+  const { c } = requireCaps();
+  if (!c.isAdmin) throw new Error("Only admins can edit profiles.");
+  if (!input.reason || input.reason.trim().length < 5)
+    throw new Error("A reason of at least 5 characters is required and will be logged.");
+  const target = accountFor(input.email);
+  if (!target) throw new Error("Unknown account.");
+
+  // Rename propagates to the account record itself (and its live session).
+  if (input.name && input.name.trim() !== target.name && input.name.trim().length >= 2) {
+    const rename = (a: DemoAccount) => (a.email === input.email ? { ...a, name: input.name!.trim() } : a);
+    if (lookupAccount(input.email)) {
+      // built-in: re-register under the same identity
+      ACCOUNT_BY_EMAIL.set(input.email, rename(ACCOUNT_BY_EMAIL.get(input.email)!));
+    }
+    store.setCustomAccounts(store.getCustomAccounts().map(rename));
+  }
+
+  const profiles = store.getAdminProfiles();
+  profiles[input.email] = {
+    ...(profiles[input.email] ?? {}),
+    ...(input.city !== undefined ? { city: input.city.trim() } : {}),
+    ...(input.rank !== undefined ? { rank: input.rank.trim() } : {}),
+    ...(input.bio !== undefined ? { bio: input.bio.trim() } : {}),
+  };
+  store.setAdminProfiles(profiles);
+  log("audit.user_edit", `Edited profile ${input.email} — reason: ${input.reason.trim()}`);
+  return listDemoUsers();
+}
+
+export async function adminDeleteUser(email: string, reason: string): Promise<DemoUserRow[]> {
+  await latency(240);
+  const { session, c } = requireCaps();
+  if (!c.isAdmin) throw new Error("Only admins can delete accounts.");
+  if (!reason || reason.trim().length < 5)
+    throw new Error("A reason of at least 5 characters is required and will be logged.");
+  if (session?.email === email) throw new Error("You cannot delete your own account.");
+  const target = accountFor(email);
+  if (!target) throw new Error("Unknown account.");
+  const users = await listDemoUsers();
+  if (target.role === "admin" && users.filter((u) => u.role === "admin").length <= 1)
+    throw new Error("The last remaining admin cannot be deleted.");
+
+  store.setDeletedAccounts([...store.getDeletedAccounts(), email]);
+  log("audit.user_delete", `Deleted account ${email} (${roleLabel(target.role)}) — reason: ${reason.trim()}`);
+  return listDemoUsers();
+}
+
+export async function adminRestoreUser(email: string, reason: string): Promise<DemoUserRow[]> {
+  await latency(200);
+  const { c } = requireCaps();
+  if (!c.isAdmin) throw new Error("Only admins can restore accounts.");
+  if (!reason || reason.trim().length < 5)
+    throw new Error("A reason of at least 5 characters is required and will be logged.");
+  store.setDeletedAccounts(store.getDeletedAccounts().filter((e) => e !== email));
+  store.setSuspensions({ ...store.getSuspensions(), [email]: false });
+  log("audit.user_restore", `Restored account ${email} — reason: ${reason.trim()}`);
+  return listDemoUsers();
 }
 
 /** Distinct demo audit log entries (auth + moderation events). */

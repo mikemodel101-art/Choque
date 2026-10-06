@@ -218,6 +218,18 @@ export function MatCard({
 
       {!compact && <p className="mt-3 text-sm text-muted measure line-clamp-2">{mat.notes}</p>}
 
+      {/* Host + visitor requirements (spec: clear host info & requirements) */}
+      <div className="mt-3 grid gap-1.5 text-xs text-muted sm:grid-cols-2">
+        <p className="flex items-center gap-1.5 truncate">
+          <Users className="size-3.5 shrink-0" />
+          Host: <span className="truncate font-medium text-foreground">{mat.hostName}</span>
+        </p>
+        <p className="flex items-center gap-1.5 truncate">
+          <BadgeCheck className="size-3.5 shrink-0" />
+          <span className="truncate">{mat.visitorRequirements}</span>
+        </p>
+      </div>
+
       <div className="mt-4">
         <div className="h-1 overflow-hidden rounded-full bg-foreground/[0.07]" role="progressbar" aria-valuenow={mat.attendees} aria-valuemin={0} aria-valuemax={mat.capacity} aria-label={`${mat.attendees} of ${mat.capacity} spots taken`}>
           <div

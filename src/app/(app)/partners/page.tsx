@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { usePartners } from "@/lib/hooks";
+import { useCities, usePartners } from "@/lib/hooks";
 import type { Discipline } from "@/lib/types";
 
 export default function PartnersPage() {
@@ -27,6 +27,7 @@ export default function PartnersPage() {
   const [weightClass, setWeightClass] = useState<"all" | "-65" | "65-75" | "75+">("all");
   const [lookingFor, setLookingFor] = useState("all");
   const [days, setDays] = useState<string[]>([]);
+  const [partnerCity, setPartnerCity] = useState("all");
 
   const filters = useMemo(
     () => ({ q, discipline, time, weightClass, lookingFor }),
@@ -35,10 +36,13 @@ export default function PartnersPage() {
   const { data: all, isLoading } = usePartners(filters);
 
   // Day-of-week chips narrow the result set client-side (spec 5.4).
-  const partners = useMemo(
-    () => (days.length === 0 ? all : (all ?? []).filter((p) => p.weekdays.some((d) => days.includes(d)))),
-    [all, days],
-  );
+  const { data: cities } = useCities();
+  const partners = useMemo(() => {
+    let out = all ?? [];
+    if (days.length > 0) out = out.filter((p) => p.weekdays.some((d) => days.includes(d)));
+    if (partnerCity !== "all") out = out.filter((p) => p.city === partnerCity);
+    return out;
+  }, [all, days, partnerCity]);
 
   useEffect(() => {
     if (isLoading || !partners) return;
@@ -52,10 +56,11 @@ export default function PartnersPage() {
 
   const activeFilters =
     (discipline !== "all" ? 1 : 0) + (time !== "all" ? 1 : 0) +
-    (weightClass !== "all" ? 1 : 0) + (lookingFor !== "all" ? 1 : 0) + (days.length > 0 ? 1 : 0);
+    (weightClass !== "all" ? 1 : 0) + (lookingFor !== "all" ? 1 : 0) + (days.length > 0 ? 1 : 0) +
+    (partnerCity !== "all" ? 1 : 0);
 
   const reset = () => {
-    setQ(""); setDiscipline("all"); setTime("all"); setWeightClass("all"); setLookingFor("all"); setDays([]);
+    setQ(""); setDiscipline("all"); setTime("all"); setWeightClass("all"); setLookingFor("all"); setDays([]); setPartnerCity("all");
   };
 
   const refinementControls = (
@@ -80,6 +85,15 @@ export default function PartnersPage() {
           <SelectItem value="-65">Under 65 kg</SelectItem>
           <SelectItem value="65-75">65–75 kg</SelectItem>
           <SelectItem value="75+">Over 75 kg</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select value={partnerCity} onValueChange={setPartnerCity}>
+        <SelectTrigger className="w-full lg:w-36" aria-label="Filter by city or area">
+          <SelectValue placeholder="City / area" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Any area</SelectItem>
+          {(cities ?? []).map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
         </SelectContent>
       </Select>
       <div className="w-full">

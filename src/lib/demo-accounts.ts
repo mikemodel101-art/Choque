@@ -58,6 +58,11 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
 
 export const ACCOUNT_BY_EMAIL = new Map(DEMO_ACCOUNTS.map((a) => [a.email, a]));
 
+/** Lookup across the built-in registry AND accounts an admin added at runtime. */
+export function lookupAccount(email: string): DemoAccount | undefined {
+  return ACCOUNT_BY_EMAIL.get(email);
+}
+
 export function roleLabel(role: AppRole): string {
   switch (role) {
     case "member": return "Member";

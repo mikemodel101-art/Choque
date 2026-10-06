@@ -54,6 +54,10 @@ export interface Gym {
   dropIn: number; // day pass USD
   headCoach: string;
   coaches: string[];
+  /** Public contact links shown on the gym profile. */
+  website?: string;
+  instagram?: string;
+  email?: string;
   image: string;
   gallery: string[];
   about: string;
@@ -106,6 +110,11 @@ export interface OpenMat {
   capacity: number;
   attendeesBase: number;
   womenOnly: boolean;
+  /** Who's running the session and how to reach them. */
+  hostName: string;
+  hostContact?: string;
+  /** Gear/intensity requirements visitors must know beforehand. */
+  visitorRequirements: string;
   notes: string;
 }
 
